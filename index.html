@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChromaCam - Virtual Studio & Video Recorder</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <i data-lucide="video" class="logo-icon"></i>
+                <span class="logo-text">ChromaCam <span class="version">v1.1</span></span>
+            </div>
+
+            <!-- Tabs for Background Modes -->
+            <div class="tab-container">
+                <button class="tab-btn active" data-mode="color">
+                    <i data-lucide="palette"></i>
+                    <span>Color</span>
+                </button>
+                <button class="tab-btn" data-mode="image">
+                    <i data-lucide="image"></i>
+                    <span>Image</span>
+                </button>
+            </div>
+
+            <!-- Tab Content: Solid Colors -->
+            <div id="colorPanel" class="panel active">
+                <div class="panel-section">
+                    <label class="section-title">Custom Hue</label>
+                    <div class="color-picker-row">
+                        <input type="color" id="colorPicker" value="#4f46e5">
+                        <span id="colorHex" class="color-hex">#4F46E5</span>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <label class="section-title">Color Presets</label>
+                    <div class="swatches-grid">
+                        <button class="swatch active" style="background-color: #4f46e5;" data-color="#4f46e5" title="Indigo"></button>
+                        <button class="swatch" style="background-color: #0ea5e9;" data-color="#0ea5e9" title="Sky"></button>
+                        <button class="swatch" style="background-color: #10b981;" data-color="#10b981" title="Emerald"></button>
+                        <button class="swatch" style="background-color: #f43f5e;" data-color="#f43f5e" title="Rose"></button>
+                        <button class="swatch" style="background-color: #eab308;" data-color="#eab308" title="Amber"></button>
+                        <button class="swatch" style="background-color: #00ff00;" data-color="#00ff00" title="Green Screen"></button>
+                        <button class="swatch" style="background-color: #1e293b;" data-color="#1e293b" title="Slate"></button>
+                        <button class="swatch" style="background-color: #0f172a;" data-color="#0f172a" title="Dark Gray"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: Custom Images -->
+            <div id="imagePanel" class="panel">
+                <div class="panel-section">
+                    <label class="section-title">Upload Background</label>
+                    <div class="upload-area" id="uploadArea">
+                        <i data-lucide="cloud-upload" class="upload-icon"></i>
+                        <span class="upload-label">Click or drag image here</span>
+                        <span class="upload-subtext">JPG or PNG (max 5MB)</span>
+                        <input type="file" id="bgImageInput" accept="image/*" class="file-input">
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <label class="section-title">Virtual Environments</label>
+                    <div class="presets-grid" id="presetsGrid">
+                        <!-- Uploaded image thumbnails will populate here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recording Control Panel -->
+            <div class="record-section">
+                <button id="recordBtn" class="btn btn-primary" disabled>
+                    <i data-lucide="video" class="btn-icon"></i>
+                    <span>Start Recording</span>
+                </button>
+                <a id="downloadBtn" class="btn btn-success hidden">
+                    <i data-lucide="download" class="btn-icon"></i>
+                    <span>Download Recording</span>
+                </a>
+            </div>
+
+            <!-- Stream Monitor & Metadata -->
+            <div class="monitor-section">
+                <div class="monitor-row">
+                    <span class="monitor-label">Camera Status</span>
+                    <span class="monitor-value"><span class="indicator-dot" id="statusDot"></span><span id="statusText">Disconnected</span></span>
+                </div>
+                <div class="monitor-row">
+                    <span class="monitor-label">Resolution</span>
+                    <span class="monitor-value">640 × 480 px</span>
+                </div>
+                <div class="monitor-row">
+                    <span class="monitor-label">Output Target</span>
+                    <span class="monitor-value">H.264 MP4</span>
+                </div>
+                <div class="monitor-row hidden" id="timerRow">
+                    <span class="monitor-label font-danger">Recording Time</span>
+                    <span class="monitor-value font-danger" id="timerText">00:00</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Stream Workspace -->
+        <main class="workspace">
+            <div class="feed-window">
+                <div class="feed-header">
+                    <div class="window-controls">
+                        <span class="control-dot"></span>
+                        <span class="control-dot"></span>
+                        <span class="control-dot"></span>
+                    </div>
+                    <div class="feed-title">Live virtual monitor feed</div>
+                </div>
+                
+                <div class="feed-container">
+                    <img id="processedPreview" src="" alt="" class="processed-image">
+                    
+                    <div id="loadingOverlay" class="loading-overlay">
+                        <div class="spinner"></div>
+                        <p class="loading-text">Initializing Video Stream...</p>
+                    </div>
+                    
+                    <video id="rawWebcam" autoplay playsinline muted class="hidden-video"></video>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>

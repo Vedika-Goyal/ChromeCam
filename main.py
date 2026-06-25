@@ -30,11 +30,34 @@ class RecordingSession:
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.writer = cv2.VideoWriter(self.filename, fourcc, fps, (width, height))
         self.active = True
+        
+        # Real-time synchronization parameters
+        import time
+        self.start_time = None
+        self.frames_written = 0
 
     def write_frame(self, frame: np.ndarray):
-        if self.active and self.writer is not None:
-            frame_resized = cv2.resize(frame, (self.width, self.height))
+        if not self.active or self.writer is None:
+            return
+            
+        import time
+        current_time = time.time()
+        if self.start_time is None:
+            self.start_time = current_time
+            
+        frame_resized = cv2.resize(frame, (self.width, self.height))
+        
+        # Calculate how many frames should have been written based on elapsed time
+        elapsed_time = current_time - self.start_time
+        expected_frames = int(elapsed_time * self.fps)
+        
+        # Interpolate duplicate frames to fill the time gap if lag occurred
+        frames_to_write = max(1, expected_frames - self.frames_written)
+        
+        for _ in range(frames_to_write):
             self.writer.write(frame_resized)
+            
+        self.frames_written += frames_to_write
 
     def close(self):
         if self.writer is not None:

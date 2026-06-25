@@ -85,7 +85,6 @@ function updateColorState(hex) {
 }
 
 // 3. Custom Image Upload and Drag-Drop
-uploadArea.addEventListener('click', () => bgImageInput.click());
 
 bgImageInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {

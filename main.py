@@ -3,11 +3,12 @@ import uuid
 import cv2
 import numpy as np
 import mediapipe as mp
+import subprocess
 from fastapi import FastAPI, File, UploadFile, Query, HTTPException
 from fastapi.responses import FileResponse, Response
 from typing import Dict
 
-app = FastAPI(title="ChromaCam Virtual Studio", version="1.1.0")
+app = FastAPI(title="ChromaCam Virtual Studio", version="1.2.0")
 
 RECORDINGS_DIR = "recordings"
 UPLOADS_DIR = "uploads"
@@ -44,7 +45,7 @@ class RecordingSession:
 def hex_to_bgr(hex_str: str) -> np.ndarray:
     hex_str = hex_str.lstrip("#")
     if len(hex_str) != 6:
-        return np.array([30, 41, 59], dtype=np.uint8) # Default dark slate
+        return np.array([30, 41, 59], dtype=np.uint8)
     r = int(hex_str[0:2], 16)
     g = int(hex_str[2:4], 16)
     b = int(hex_str[4:6], 16)
@@ -60,12 +61,10 @@ async def upload_background(file: UploadFile = File(...)):
         if bg_img is None:
             raise HTTPException(status_code=400, detail="Invalid background image")
 
-        # Cache the image and save a local copy
         bg_id = str(uuid.uuid4())
         file_path = os.path.join(UPLOADS_DIR, f"{bg_id}.jpg")
         cv2.imwrite(file_path, bg_img)
         
-        # Cache resized version directly for performance
         background_images_cache[bg_id] = bg_img
         
         return {"status": "success", "background_id": bg_id}
@@ -91,6 +90,56 @@ async def stop_recording(video_id: str = Query(...)):
     session.close()
     return {"status": "success", "video_id": video_id}
 
+@app.post("/upload_audio")
+async def upload_audio(file: UploadFile = File(...), video_id: str = Query(...)):
+    if video_id not in recording_sessions:
+        raise HTTPException(status_code=404, detail="Recording session not found")
+    
+    try:
+        audio_path = os.path.join(RECORDINGS_DIR, f"{video_id}_audio.webm")
+        contents = await file.read()
+        with open(audio_path, "wb") as f:
+            f.write(contents)
+            
+        video_path = os.path.join(RECORDINGS_DIR, f"{video_id}.mp4")
+        merged_path = os.path.join(RECORDINGS_DIR, f"{video_id}_merged.mp4")
+        
+        if not os.path.exists(video_path):
+            raise HTTPException(status_code=404, detail="Video file not found")
+            
+        # FFmpeg command to multiplex video and audio
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", audio_path,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-shortest",
+            merged_path
+        ]
+        
+        try:
+            result = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if result.returncode == 0 and os.path.exists(merged_path):
+                os.replace(merged_path, video_path)
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+                return {"status": "success", "detail": "Audio merged successfully"}
+            else:
+                print(f"FFmpeg multiplexing failed: {result.stderr}")
+        except FileNotFoundError:
+            print("FFmpeg not found in path. Serving video file without audio.")
+            
+        # Fallback cleanup
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        return {"status": "success", "detail": "FFmpeg not available; serving silent video instead"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio processing error: {str(e)}")
+
 @app.post("/process_frame")
 async def process_frame(
     file: UploadFile = File(...),
@@ -106,6 +155,9 @@ async def process_frame(
         
         if frame is None:
             raise HTTPException(status_code=400, detail="Corrupted frame data")
+
+        # Mirror the frame horizontally for natural user feedback
+        frame = cv2.flip(frame, 1)
 
         # Select background canvas
         if bg_type == "image" and bg_image_id:
@@ -132,7 +184,6 @@ async def process_frame(
         results = selfie_segmentation.process(rgb_frame)
         
         if results.segmentation_mask is not None:
-            # Soften mask edges
             mask = cv2.GaussianBlur(results.segmentation_mask, (5, 5), 0)
             mask_3d = np.stack((mask,) * 3, axis=-1)
             output_frame = (frame * mask_3d + bg_image * (1.0 - mask_3d)).astype(np.uint8)

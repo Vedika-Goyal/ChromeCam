@@ -28,6 +28,11 @@ let isProcessing = false;
 let recordingStartTime = null;
 let timerIntervalId = null;
 
+// Audio variables
+let audioStream = null;
+let audioRecorder = null;
+let audioChunks = [];
+
 const streamWidth = 640;
 const streamHeight = 480;
 const targetFps = 20;
@@ -164,7 +169,7 @@ function createEnvironmentThumbnail(id, objectUrl) {
     currentBgImageId = id;
 }
 
-// 4. Video Stream Acquisition
+// 4. Video and Audio Stream Acquisition
 async function startWebcam() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -173,10 +178,16 @@ async function startWebcam() {
                 height: { ideal: streamHeight },
                 frameRate: { ideal: targetFps }
             },
-            audio: false
+            audio: true // Request microphone access alongside webcam
         });
         
         rawWebcam.srcObject = stream;
+        
+        // Extract microphone track for independent audio recording
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            audioStream = new MediaStream(audioTracks);
+        }
         
         rawWebcam.onloadedmetadata = () => {
             rawWebcam.play();
@@ -192,14 +203,74 @@ async function startWebcam() {
             runPipelineLoop();
         };
     } catch (err) {
-        console.error("Camera interface initialization failed:", err);
-        loadingOverlay.querySelector('.loading-text').textContent = "Camera permission denied or camera unavailable.";
+        console.error("Camera/Mic interface initialization failed:", err);
+        loadingOverlay.querySelector('.loading-text').textContent = "Permissions denied or hardware unavailable.";
         loadingOverlay.querySelector('.spinner').style.display = 'none';
         statusText.textContent = "Access Denied";
     }
 }
 
-// 5. Frame Blending Pipeline
+// 5. Audio Recorder Setup
+function setupAudioRecorder(recordingId) {
+    if (!audioStream) return;
+    
+    audioChunks = [];
+    const options = { mimeType: 'audio/webm' };
+    
+    try {
+        audioRecorder = new MediaRecorder(audioStream, options);
+    } catch (e) {
+        console.warn("Fallback to default audio MediaRecorder format:", e);
+        audioRecorder = new MediaRecorder(audioStream);
+    }
+    
+    audioRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+            audioChunks.push(event.data);
+        }
+    };
+    
+    audioRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        audioChunks = [];
+        
+        statusText.textContent = "Processing Audio...";
+        statusDot.classList.remove('active');
+        recordBtn.disabled = true;
+        
+        await uploadAudioTrack(recordingId, audioBlob);
+        
+        recordBtn.disabled = false;
+        statusDot.classList.add('active');
+        statusText.textContent = "Active";
+    };
+}
+
+async function uploadAudioTrack(recordingId, audioBlob) {
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'audio.webm');
+    
+    try {
+        const response = await fetch(`/upload_audio?video_id=${recordingId}`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error("Server audio integration failed");
+        
+        downloadBtn.href = `/download/${recordingId}`;
+        downloadBtn.classList.remove('hidden');
+    } catch (err) {
+        console.error("Audio upload/merge process failed:", err);
+        alert("Audio sync failed. Video will be saved as silent.");
+        
+        // Silent video download fallback
+        downloadBtn.href = `/download/${recordingId}`;
+        downloadBtn.classList.remove('hidden');
+    }
+}
+
+// 6. Frame Blending Pipeline
 function runPipelineLoop() {
     async function captureFrame() {
         if (!rawWebcam.paused && !rawWebcam.ended) {
@@ -256,7 +327,7 @@ async function transmitFrame(blob) {
     }
 }
 
-// 6. Local Recording Session Management
+// 7. Local Recording Session Management
 recordBtn.addEventListener('click', async () => {
     if (!isRecording) {
         await startRecording();
@@ -284,6 +355,12 @@ async function startRecording() {
         recordBtn.innerHTML = `<i data-lucide="square" class="btn-icon"></i> <span>Stop Recording</span>`;
         lucide.createIcons();
         
+        // Start microphone recording recorder
+        setupAudioRecorder(activeVideoId);
+        if (audioRecorder) {
+            audioRecorder.start();
+        }
+        
         startTimer();
     } catch (err) {
         console.error("Recording init failure:", err);
@@ -294,14 +371,18 @@ async function startRecording() {
 async function stopRecording() {
     if (!activeVideoId) return;
     
+    // Store current video ID for async audio processing closure
+    const currentId = activeVideoId;
+    
     try {
-        const response = await fetch(`/stop_recording?video_id=${activeVideoId}`, {
+        const response = await fetch(`/stop_recording?video_id=${currentId}`, {
             method: 'POST'
         });
         
         if (!response.ok) throw new Error();
         
         isRecording = false;
+        activeVideoId = null;
         
         recordBtn.classList.remove('recording');
         recordBtn.innerHTML = `<i data-lucide="video" class="btn-icon"></i> <span>Start Recording</span>`;
@@ -309,17 +390,21 @@ async function stopRecording() {
         
         stopTimer();
         
-        downloadBtn.href = `/download/${activeVideoId}`;
-        downloadBtn.classList.remove('hidden');
-        
-        activeVideoId = null;
+        // Trigger audio recorder save which handles final upload
+        if (audioRecorder && audioRecorder.state !== 'inactive') {
+            audioRecorder.stop();
+        } else {
+            // Immediate fallback if mic is unavailable
+            downloadBtn.href = `/download/${currentId}`;
+            downloadBtn.classList.remove('hidden');
+        }
     } catch (err) {
         console.error("Recording stop failure:", err);
         alert("Recording could not be finalized cleanly.");
     }
 }
 
-// 7. Timer Mechanics
+// 8. Timer Mechanics
 function startTimer() {
     recordingStartTime = Date.now();
     timerRow.classList.remove('hidden');
